@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Tài Xỉu Demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body{
+  margin:0;
+  font-family:Arial;
+  background:radial-gradient(circle,#1b2735,#05070d);
+  color:white;
+}
+.box{
+  max-width:420px;
+  margin:10px auto;
+  background:#0b0f1a;
+  padding:15px;
+  border-radius:12px;
+  text-align:center;
+}
+.hidden{display:none}
+input,button{
+  padding:10px;
+  margin:5px;
+  border-radius:6px;
+  border:none;
+}
+button{cursor:pointer}
+.tai{background:#c0392b;color:white}
+.xiu{background:#2980b9;color:white}
+.betBtn{background:gold;font-weight:bold}
+.lock{opacity:.5;pointer-events:none}
+.timer{color:#00ffd5;font-size:20px}
+
+#soundBtn{
+  position:fixed;
+  top:15px;
+  right:15px;
+  font-size:30px;
+  cursor:pointer;
+}
+
+#hand{
+  position:fixed;
+  left:10px;
+  top:50%;
+  font-size:50px;
+  cursor:pointer;
+  animation:idle 2s infinite;
+}
+#hand.active{filter:drop-shadow(0 0 20px gold)}
+
+@keyframes idle{50%{transform:scale(1.1)}}
+
+#overlay{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.85);
+  display:none;
+}
+
+.dice{
+  font-size:60px;
+  margin:10px;
+  animation:roll .6s linear infinite;
+}
+.stop{animation:none}
+
+@keyframes roll{to{transform:rotate(360deg)}}
+
+#history span{
+  padding:4px 6px;
+  margin:2px;
+  border-radius:4px;
+  font-size:12px;
+}
+.TÀI{background:red}
+.XỈU{background:blue}
+</style>
+</head>
+
+<body>
+
+<!-- SOUND BUTTON -->
+<div id="soundBtn" onclick="toggleSound()">🔊</div>
+
+<!-- AUDIO (LOCAL FILE) -->
+<audio id="bgm" loop preload="auto">
+  <source src="music/bgm.mp3" type="audio/mpeg">
+</audio>
+<audio id="sndRoll" preload="auto">
+  <source src="music/roll.mp3" type="audio/mpeg">
+</audio>
+<audio id="sndOpen" preload="auto">
+  <source src="music/open.mp3" type="audio/mpeg">
+</audio>
+
+<!-- LOGIN -->
+<div class="box" id="authBox">
+  <h2>Đăng nhập / Đăng ký</h2>
+  <input id="user" placeholder="Tài khoản">
+  <input id="pass" type="password" placeholder="Mật khẩu"><br>
+  <button onclick="login()">Đăng nhập</button>
+  <button onclick="register()">Đăng ký</button>
+  <p id="authMsg"></p>
+</div>
+
+<!-- GAME -->
+<div class="box hidden" id="gameBox">
+  <h2>🎲 TÀI XỈU</h2>
+  💰 <span id="money">0</span> |
+  ⏳ <span id="time" class="timer">60</span>s
+
+  <br><br>
+  <input id="bet" type="number" placeholder="Tiền cược"><br>
+  <button class="tai" onclick="selectSide('TÀI')">TÀI</button>
+  <button class="xiu" onclick="selectSide('XỈU')">XỈU</button><br>
+  <button id="placeBtn" class="betBtn hidden" onclick="placeBet()">ĐẶT</button>
+
+  <h3 id="result">Chờ ván...</h3>
+
+  <h4>Lịch sử</h4>
+  <div id="history"></div>
+</div>
+
+<div id="hand" onclick="openBowl()">✋</div>
+
+<div id="overlay" onclick="overlay.style.display='none'">
+  <div style="margin-top:40vh;text-align:center">
+    <div id="diceBox"></div>
+    <h2 id="finalResult"></h2>
+  </div>
+</div>
+
+<script>
+/* SOUND */
+let soundOn=false;
+function toggleSound(){
+  if(!soundOn){
+    bgm.volume=0.4;
+    bgm.play();
+    soundBtn.innerText="🔈";
+    soundOn=true;
+  }else{
+    bgm.pause();
+    soundBtn.innerText="🔊";
+    soundOn=false;
+  }
+}
+
+/* USERS */
+let users=JSON.parse(localStorage.getItem("users"))||{};
+let current=null;
+let money=1000;
+
+/* GAME STATE */
+let timeLeft=60;
+let selected=null,locked=false,betValue=0;
+let finalDice=[],finalType="";
+let ready=false,autoOpen=null;
+let history=[];
+
+function save(){
+  localStorage.setItem("users",JSON.stringify(users));
+}
+
+function login(){
+  if(users[user.value]?.pass===pass.value){
+    current=user.value;
+    money=users[current].money;
+    authBox.classList.add("hidden");
+    gameBox.classList.remove("hidden");
+    moneySpan.innerText=money;
+  }else authMsg.innerText="Sai tài khoản";
+}
+
+function register(){
+  if(users[user.value])return;
+  users[user.value]={pass:pass.value,money:1000};
+  save();
+  authMsg.innerText="Đăng ký xong";
+}
+
+/* TIMER */
+setInterval(()=>{
+  timeLeft--;
+  time.innerText=timeLeft;
+  if(timeLeft<=0){
+    roll();
+    timeLeft=60;
+  }
+},1000);
+
+/* BET */
+function selectSide(s){
+  if(locked)return;
+  selected=s;
+  placeBtn.classList.remove("hidden");
+}
+
+function placeBet(){
+  betValue=parseInt(bet.value);
+  if(!betValue||betValue>money)return;
+  locked=true;
+  placeBtn.classList.add("lock");
+}
+
+/* ROLL */
+function roll(){
+  finalDice=[rand(),rand(),rand()];
+  finalType=(finalDice[0]+finalDice[1]+finalDice[2])>=11?"TÀI":"XỈU";
+
+  if(locked){
+    money+=selected===finalType?betValue:-betValue;
+    users[current].money=money;
+    save();
+  }
+
+  history.unshift(finalType);
+  history=history.slice(0,10);
+  renderHistory();
+
+  ready=true;
+  hand.classList.add("active");
+  autoOpen=setTimeout(openBowl,40000);
+  resetBet();
+}
+
+function resetBet(){
+  selected=null;locked=false;betValue=0;
+  placeBtn.classList.add("hidden");
+  placeBtn.classList.remove("lock");
+  moneySpan.innerText=money;
+}
+
+/* BOWL */
+function openBowl(){
+  if(!ready)return;
+  ready=false;
+  clearTimeout(autoOpen);
+
+  overlay.style.display="block";
+  diceBox.innerHTML="";
+  sndOpen.play();
+  sndRoll.play();
+
+  finalDice.forEach((d,i)=>{
+    let s=document.createElement("span");
+    s.className="dice";
+    s.innerText="🎲";
+    diceBox.appendChild(s);
+    setTimeout(()=>{
+      s.innerText="🎲 "+d;
+      s.classList.add("stop");
+    },1000+i*300);
+  });
+
+  setTimeout(()=>{
+    finalResult.innerText="KẾT QUẢ: "+finalType;
+    hand.classList.remove("active");
+  },2000);
+}
+
+function renderHistory(){
+  historyDiv.innerHTML="";
+  history.forEach(h=>{
+    let s=document.createElement("span");
+    s.className=h;
+    s.innerText=h;
+    historyDiv.appendChild(s);
+  });
+}
+
+function rand(){return Math.floor(Math.random()*6)+1}
+
+const moneySpan=document.getElementById("money");
+const historyDiv=document.getElementById("history");
+</script>
+
+</body>
+</html>
